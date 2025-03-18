@@ -14,6 +14,7 @@ public class CapifyLeadParser {
     public String Bank_Statement_Document_ID;	//12XC32
     public boolean Contact_via_Referrer;
     public String Tracking_ID;	//Referrer ID
+    public String Monthly_Turnover;
     public cls_ReferrerContactDetails ReferrerContactDetails;
     
     public class cls_ReferrerContactDetails {

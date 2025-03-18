@@ -39,7 +39,7 @@ global class CapifyLeadSubmit {
             if(cPartner.API_Key__c != null && cPartner.API_Secret__c != null && cPartner.AccountId__c != null) {
                 
                 RestResponse returningRes = new RestResponse();
-                returningRes = !Test.isRunningTest() ? CapifyWebhookHandler.handleWebhookRequest(modifiedJson, cPartner.MasterLabel, res) : CapifyWebhookHandler.mockSuccessResponse(res);
+                returningRes = !Test.isRunningTest() ? CapifyWebhookHandler.handleWebhookRequest(modifiedJson, cPartner.MasterLabel, res ,cPartner.AccountId__c) : CapifyWebhookHandler.mockSuccessResponse(res);
                 
                 res = returningRes; 
             }

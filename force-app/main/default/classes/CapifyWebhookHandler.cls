@@ -1,5 +1,5 @@
 public class CapifyWebhookHandler{
-    public static RestResponse handleWebhookRequest(String requestBody, String partnerName, RestResponse restRes){
+    public static RestResponse handleWebhookRequest(String requestBody, String partnerName, RestResponse restRes, String parentID){
         RestResponse res = RestContext.response;
         try{
             //Parse the JSON request
@@ -10,9 +10,6 @@ public class CapifyWebhookHandler{
             
             //Required feilds List
             List<String> missingFieldsList = new List<String>();
-            
-            //Invalid picklist value string
-            List<String> invalidFieldsList = new List<String>();
             
             //Required params
             if(parsedReq.FirstName != null && parsedReq.FirstName != '')
@@ -58,29 +55,46 @@ public class CapifyWebhookHandler{
                 nLead.Bank_Statement_Document_ID__c = parsedReq.Bank_Statement_Document_ID;
             
             if(parsedReq.Contact_via_Referrer)
-                nLead.Contact_via_Referrer__c = boolean.valueOf(parsedReq.Contact_via_Referrer);
-            
+            nLead.Contact_via_Referrer__c = boolean.valueOf(parsedReq.Contact_via_Referrer);
+
+            if(parsedReq.Monthly_Turnover != null && parsedReq.Monthly_Turnover != '')
+            nLead.Monthly_Turnover__c = decimal.valueOf(parsedReq.Monthly_Turnover);    
+        
             if(parsedReq.Tracking_ID != null && parsedReq.Tracking_ID != '')
                 nLead.Tracking_ID__c = parsedReq.Tracking_ID;
             
-            if(parsedReq.ReferrerContactDetails != null ){
+       
+            
+            if(missingFieldsList.isEmpty()) {                
+                 //Checking for the ReferrerContactDetails
+         /*   if(parsedReq.ReferrerContactDetails != null ){
                 String refFirstName = parsedReq.ReferrerContactDetails.FirstName;
                 String refLastName = parsedReq.ReferrerContactDetails.LastName;
                 String refPhone = parsedReq.ReferrerContactDetails.Phone;
-                String refEmail = parsedReq.ReferrerContactDetails.Email;
+                String refEmail = parsedReq.ReferrerContactDetails.Email;*/
                 
-                if (parsedReq.ReferrerContactDetails.ReferrerBusinessDetails != null) {
+                if (parsedReq.ReferrerContactDetails != null  && parsedReq.ReferrerContactDetails.ReferrerBusinessDetails != null){
+                    if( parsedReq.ReferrerContactDetails.ReferrerBusinessDetails.Business_Registered_Number != null) {
+                        List<Account> accList = [Select Id, Name, OwnerId From Account Where Business_Registered_Number__c =: parsedReq.ReferrerContactDetails.ReferrerBusinessDetails.Business_Registered_Number];
+                        if(accList.size() > 0){
+                            findReferringContact(parsedReq,parentID , nLead);
+                        }  
+                    }else{
+                        createReferringBussiness(parsedReq,parentID);
+                    }  
+                }else {
+                    findReferringContact(parsedReq,parentID,nLead);
+                }
+               /*  if( parsedReq.ReferrerContactDetails.ReferrerBusinessDetails.Business_Registered_Number != null) {
                     String refCompany = parsedReq.ReferrerContactDetails.ReferrerBusinessDetails.Company;
                     String refBusinessNumber = parsedReq.ReferrerContactDetails.ReferrerBusinessDetails.Business_Registered_Number;
                     
                     System.debug('Referrer Business Name: ' + refCompany);
                     System.debug('Referrer Business Number: ' + refBusinessNumber);
-                }
-            }
+                }*/
             
-            if(missingFieldsList.isEmpty()) {
                 
-                //insert nLead;
+                //insert new Lead;
                 //  Database.SaveResult result = Database.insert(nLead);
                 boolean result = true;
                 //      if(result.isSuccess()) {
@@ -103,6 +117,67 @@ public class CapifyWebhookHandler{
             system.debug('Exception ' + e.getLineNumber());
             return handleExceptions(res, e, requestBody);
         }
+    }
+    //Finding Refrerer Contact
+    public static Boolean findReferringContact(CapifyLeadParser parsedReq, String parentID, Lead nLead) {
+        Boolean result ;
+        List<Contact> contactList = new List<Contact>();
+        List<Contact> contactListSF =[SELECT Id, FirstName, LastName, Phone, Email, accountId FROM Contact Where FirstName =: parsedReq.ReferrerContactDetails.FirstName 
+        AND LastName =: parsedReq.ReferrerContactDetails.LastName AND Phone =: parsedReq.ReferrerContactDetails.Phone AND Email =:  parsedReq.ReferrerContactDetails.Email];
+        if(contactListSF.size()>0){
+            result = createLead(nLead);
+            return result;
+        }else{
+            result = createReferringContact(parsedReq,  parentID, nLead);
+            return result;
+        }   
+            
+    }
+
+    //Creating new Account if not found
+    public static void createReferringBussiness(CapifyLeadParser parsedReq, String parentID) {
+        List<Account> accOwnerList = [Select Id, Name, OwnerId From Account Where ParentId =: parentID];
+                       
+        List<Account> accList = new List<Account>();
+        Account acc = new Account();
+        acc.Name = parsedReq.ReferrerContactDetails.ReferrerBusinessDetails.Company;
+        acc.Business_Registered_Number__c = parsedReq.ReferrerContactDetails.ReferrerBusinessDetails.Business_Registered_Number;
+        acc.ParentId = parentID;
+        acc.OwnerId = accOwnerList[0].OwnerId;
+        acc.RecordTypeId = Schema.SObjectType.Account.getRecordTypeInfosByName().get('Referrer').getRecordTypeId();
+        accList.add(acc);
+        if (accList.size() > 0) {
+            Database.SaveResult[] result = Database.insert(accList);
+        }
+        //Send notification to the Source Business Owner
+    }
+
+    //Creating new Contact if not found
+    public static Boolean createReferringContact(CapifyLeadParser parsedReq, String parentID, Lead nLead) {
+        List<Contact> conList = new List<Contact>();
+        Contact con = new Contact();
+        con.FirstName = parsedReq.ReferrerContactDetails.FirstName;
+        con.LastName = parsedReq.ReferrerContactDetails.LastName;
+        con.Email = parsedReq.ReferrerContactDetails.Email;
+        con.Phone = parsedReq.ReferrerContactDetails.Phone;
+        con.AccountId = parentID;
+        con.recordTypeId = Schema.SObjectType.Contact.getRecordTypeInfosByName().get('Referrer').getRecordTypeId();
+        conList.add(con);
+        if(conList.size()>0){
+             Database.SaveResult[] result = Database.insert(conList);
+        }
+        Boolean result = createLead(nLead);
+            return result;
+    }
+
+    //Creating new Lead
+    public static Boolean createLead(Lead nLead) {        
+            Database.SaveResult result = Database.insert(nLead);
+            if(result.isSuccess()){
+                return true;
+            }else {
+                return false;
+            }          
     }
     
     //Response for successful lead insertion
